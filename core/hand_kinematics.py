@@ -14,7 +14,7 @@
   近指间关节(PIP): 100°
   远指间关节(DIP): 80°
 
-坐标系: X=横向(拇指侧为正), Y=手指伸展方向(向上), Z=手背方向
+坐标系: X=横向(拇指侧为正), Y=手掌前后方向(手背为正), Z=手指伸展方向(向上)
 弯曲方向: 手指向掌心弯曲 = 绕局部X轴负方向旋转
 """
 import numpy as np
@@ -51,17 +51,17 @@ JOINT_MAX_ANGLE = {
 }
 
 # 手指在手掌上的起始位置（X偏移, Y偏移, Z偏移）
-# 坐标系: X=横向(拇指侧为正), Y=手指伸展方向, Z=手背方向
+# 坐标系: X=横向(拇指侧为正), Y=手掌前后方向, Z=手指伸展方向(向上)
 FINGER_BASES = {
-    'thumb':  (2.0, 0.0, 0.5),     # 拇指在手掌侧面偏下
-    'index':  (1.2, 0.0, 0.0),
+    'thumb': (2.0, 0.5, 0.0), # 拇指在手掌侧面偏前
+    'index': (1.2, 0.0, 0.0),
     'middle': (0.4, 0.0, 0.0),
-    'ring':   (-0.4, 0.0, 0.0),
-    'pinky':  (-1.2, 0.0, 0.0),
+    'ring': (-0.4, 0.0, 0.0),
+    'pinky': (-1.2, 0.0, 0.0),
 }
 
-# 拇指特殊起始方向（与手掌平面成约40°角，向外展开）
-THUMB_BASE_ANGLE_X = 30.0  # 拇指初始X方向偏转角度（外展）
+# 拇指特殊起始方向（与手掌平面成约30°角，向外展开）
+THUMB_BASE_ANGLE_X = 30.0 # 拇指初始X方向偏转角度（外展）
 
 
 class HandKinematics:
@@ -132,8 +132,8 @@ class HandKinematics:
         current_pos = np.array([x0, y0, z0], dtype=float)
         joint_positions = [current_pos.copy()]
 
-        # 当前方向向量（初始指向Y正方向，即手指伸展方向）
-        direction = np.array([0.0, 1.0, 0.0], dtype=float)
+        # 当前方向向量（初始指向Z正方向，即手指伸展方向=向上）
+        direction = np.array([0.0, 0.0, 1.0], dtype=float)
 
         # 拇指特殊处理: 初始方向有X轴偏转（外展）
         if finger == 'thumb':
@@ -154,12 +154,12 @@ class HandKinematics:
 
             # 在当前骨骼末端施加弯曲（为下一段准备方向）
             if i < len(joint_angles):
-                # 绕局部X轴旋转（手指向掌心弯曲 = Z负方向）
+                # 绕局部X轴旋转（手指向掌心弯曲 = Y负方向）
                 rx = radians(angle)
                 rot_x = np.array([
-                    [1, 0,      0],
+                    [1, 0, 0],
                     [0, cos(rx), -sin(rx)],
-                    [0, sin(rx),  cos(rx)]
+                    [0, sin(rx), cos(rx)]
                 ])
                 direction = rot_x @ direction
                 # 归一化方向向量
@@ -174,7 +174,7 @@ class HandKinematics:
         生成手掌轮廓线段用于3D渲染
 
         Returns:
-            list of (start_pos, end_pos) 线段对
+        list of (start_pos, end_pos) 线段对
         """
         # 手掌简化为5个手指根部连接的梯形
         bases = [np.array(FINGER_BASES[f]) for f in FINGER_KEYS]
@@ -190,11 +190,82 @@ class HandKinematics:
         index_base = np.array(FINGER_BASES['index'])
         palm_lines.append((thumb_base, index_base))
 
-        # 手掌底部
-        palm_bottom_left = np.array([-1.5, -1.0, 0.0])
-        palm_bottom_right = np.array([1.5, -1.0, 0.0])
-        palm_lines.append((bases[-1], palm_bottom_left))   # 小指到底部
-        palm_lines.append((bases[1], palm_bottom_right))    # 食指到底部
-        palm_lines.append((palm_bottom_left, palm_bottom_right))  # 底部横线
+        # 手掌底部（Z=0下方，即手腕方向）
+        palm_bottom_left = np.array([-1.5, 0.0, -1.0])
+        palm_bottom_right = np.array([1.5, 0.0, -1.0])
+        palm_lines.append((bases[-1], palm_bottom_left)) # 小指到底部
+        palm_lines.append((bases[1], palm_bottom_right)) # 食指到底部
+        palm_lines.append((palm_bottom_left, palm_bottom_right)) # 底部横线
 
         return palm_lines
+
+    def get_palm_mesh_data(self):
+        """
+        生成手掌半透明面片的三角网格数据
+
+        Returns:
+            (vertices, faces, face_colors) 元组
+            vertices: Nx3 顶点坐标
+            faces: Mx3 三角面索引
+            face_colors: Mx4 面颜色(RGBA)
+        """
+        # 手掌关键顶点
+        thumb_base = np.array(FINGER_BASES['thumb'])
+        index_base = np.array(FINGER_BASES['index'])
+        middle_base = np.array(FINGER_BASES['middle'])
+        ring_base = np.array(FINGER_BASES['ring'])
+        pinky_base = np.array(FINGER_BASES['pinky'])
+
+        # 手掌底部左右角（手腕方向，Z负方向）
+        palm_bottom_left = np.array([-1.5, 0.0, -1.0])
+        palm_bottom_right = np.array([1.5, 0.0, -1.0])
+
+        # 手掌中心点(用于三角扇形分割)
+        palm_center = np.array([0.0, 0.0, -0.3])
+
+        # 拇指到食指的中间点(弧形近似)
+        thumb_index_mid = (thumb_base + index_base) / 2.0
+        thumb_index_mid[2] -= 0.3 # 稍微向下弯曲
+
+        # 顶点列表(按顺序排列)
+        vertices = np.array([
+            thumb_base,       # 0
+            index_base,       # 1
+            middle_base,      # 2
+            ring_base,        # 3
+            pinky_base,       # 4
+            palm_bottom_left, # 5
+            palm_bottom_right,# 6
+            thumb_index_mid,  # 7
+            palm_center,      # 8
+        ])
+
+        # 三角面(使用中心点做扇形分割，确保面片不扭曲)
+        faces = np.array([
+            # 拇指区域
+            [0, 7, 8],
+            [7, 1, 8],
+            # 食指到中指
+            [1, 2, 8],
+            # 中指到无名指
+            [2, 3, 8],
+            # 无名指到小指
+            [3, 4, 8],
+            # 小指到底部左
+            [4, 5, 8],
+            # 底部
+            [5, 6, 8],
+            # 底部右到食指
+            [6, 1, 8],
+            # 底部右到拇指弧
+            [6, 0, 8],
+        ])
+
+        # 面颜色 — 半透明暖灰色
+        face_colors = np.ones((len(faces), 4), dtype=float)
+        face_colors[:, 0] = 0.35  # R
+        face_colors[:, 1] = 0.38  # G
+        face_colors[:, 2] = 0.45  # B
+        face_colors[:, 3] = 0.25  # Alpha (半透明)
+
+        return vertices, faces, face_colors
