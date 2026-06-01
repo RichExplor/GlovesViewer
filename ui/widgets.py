@@ -5,22 +5,24 @@
 from PyQt5 import QtWidgets, QtCore, QtGui
 from core.hand_kinematics import FINGER_KEYS
 
-# 手指中英文映射
+# 手指中英文映射（包含手背）
 FINGER_LABELS = {
-    'thumb':  '拇指',
-    'index':  '食指',
+    'thumb': '拇指',
+    'index': '食指',
     'middle': '中指',
-    'ring':   '无名指',
-    'pinky':  '小指',
+    'ring': '无名指',
+    'pinky': '小指',
+    'palm': '手背',
 }
 
-# 手指对应颜色
+# 手指对应颜色（包含手背）
 FINGER_COLORS = {
-    'thumb':  '#e06c75',
-    'index':  '#98c379',
+    'thumb': '#e06c75',
+    'index': '#98c379',
     'middle': '#e5c07b',
-    'ring':   '#61afef',
-    'pinky':  '#c678dd',
+    'ring': '#61afef',
+    'pinky': '#c678dd',
+    'palm': '#56b6c2',
 }
 
 
@@ -73,7 +75,7 @@ class AngleGaugeWidget(QtWidgets.QWidget):
 class FingerSliderGroup(QtWidgets.QGroupBox):
     """5根手指的滑条控制器组，用于模拟手动模式"""
 
-    angle_changed = QtCore.pyqtSignal(str, float)  # finger_name, angle
+    angle_changed = QtCore.pyqtSignal(str, float) # finger_name, angle
 
     def __init__(self, parent=None):
         super().__init__("手动控制", parent)
@@ -91,18 +93,18 @@ class FingerSliderGroup(QtWidgets.QGroupBox):
             label.setStyleSheet(f"color: {FINGER_COLORS[finger]}; font-weight: bold; font-size: 11px;")
 
             slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-            slider.setRange(0, 1800)  # 0.1°精度
+            slider.setRange(0, 1800) # 0.1°精度
             slider.setValue(0)
             slider.setStyleSheet("""
-                QSlider::groove:horizontal {
-                    background: #2d3139; height: 6px; border-radius: 3px;
-                }
-                QSlider::handle:horizontal {
-                    background: #61afef; width: 14px; margin: -4px 0; border-radius: 7px;
-                }
-                QSlider::sub-page:horizontal {
-                    background: #61afef; border-radius: 3px;
-                }
+            QSlider::groove:horizontal {
+                background: #2d3139; height: 6px; border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #61afef; width: 14px; margin: -4px 0; border-radius: 7px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #61afef; border-radius: 3px;
+            }
             """)
 
             val_label = QtWidgets.QLabel("0.0°")

@@ -3,14 +3,14 @@
 模拟数据模式 — 无需真实硬件即可测试3D模型渲染
 
 提供两种模拟模式:
-  1. 正弦波模式: 每根手指以不同频率和相位做正弦弯曲运动
-  2. 手动滑条模式: 用户通过UI滑条手动控制每根手指弯曲度
+1. 正弦波模式: 每根手指以不同频率和相位做正弦弯曲运动
+2. 手动滑条模式: 用户通过UI滑条手动控制每根手指弯曲度
 """
 import time
 import math
 from PyQt5 import QtCore
 
-from core.frame_parser import FINGER_KEYS
+from core.frame_parser import FINGER_KEYS, ALL_KEYS
 
 
 class SimulatorThread(QtCore.QThread):
@@ -53,6 +53,8 @@ class SimulatorThread(QtCore.QThread):
                 angles = self._generate_sine_data(t)
             else:
                 angles = dict(self._manual_angles)
+                # 手动模式下手背默认为0
+                angles['palm'] = 0.0
 
             self.data_received.emit(angles)
             self.msleep(20)  # 50Hz
@@ -62,18 +64,20 @@ class SimulatorThread(QtCore.QThread):
         生成正弦波模拟数据
 
         每根手指有不同的频率和相位，模拟自然的抓握动作
+        手背(palm)也生成模拟数据
         """
         angles = {}
         params = {
             # (振幅, 中心值, 频率Hz, 初相位)
-            'thumb':  (40.0, 50.0, 0.3, 0.0),
-            'index':  (35.0, 45.0, 0.4, 0.5),
+            'thumb': (40.0, 50.0, 0.3, 0.0),
+            'index': (35.0, 45.0, 0.4, 0.5),
             'middle': (45.0, 55.0, 0.35, 1.0),
-            'ring':   (30.0, 40.0, 0.5, 1.5),
-            'pinky':  (25.0, 35.0, 0.45, 2.0),
+            'ring': (30.0, 40.0, 0.5, 1.5),
+            'pinky': (25.0, 35.0, 0.45, 2.0),
+            'palm': (20.0, 30.0, 0.25, 0.8),
         }
-        for finger, (amp, center, freq, phase) in params.items():
+        for key, (amp, center, freq, phase) in params.items():
             value = center + amp * math.sin(2 * math.pi * freq * t + phase)
-            angles[finger] = max(0.0, min(180.0, value))
+            angles[key] = max(0.0, min(180.0, value))
 
         return angles

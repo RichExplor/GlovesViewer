@@ -3,12 +3,12 @@
 GlovesViewer 主程序入口 — 主窗口控制器与信号槽绑定
 
 业务逻辑:
-  1. 数据源切换（BLE / 模拟正弦 / 模拟手动）
-  2. BLE设备扫描、连接、断开
-  3. 模拟器启停控制
-  4. 数据接收 -> 3D模型更新 + 曲线更新 + 仪表盘更新
-  5. 数据录制（CSV/JSON）
-  6. 状态栏刷新
+1. 数据源切换（串口 / 模拟正弦 / 模拟手动）
+2. 串口设备扫描、连接、断开
+3. 模拟器启停控制
+4. 数据接收 -> 3D模型更新 + 曲线更新 + 仪表盘更新
+5. 数据录制（CSV/JSON）
+6. 状态栏刷新
 """
 import sys
 import csv
@@ -18,9 +18,9 @@ from datetime import datetime
 
 from PyQt5 import QtWidgets, QtCore
 
-from core.ble_thread import BLEThread
+from core.serial_thread import GloveSerialThread
 from core.simulator import SimulatorThread
-from core.frame_parser import FINGER_KEYS
+from core.frame_parser import FINGER_KEYS, ALL_KEYS
 from ui.main_window import Ui_GlovesViewer
 from ui.widgets import FINGER_LABELS
 
@@ -35,15 +35,15 @@ class GlovesViewer(QtWidgets.QMainWindow):
         self.ui.setupUi(self)
 
         # 2. 初始化数据源
-        self.ble_thread = BLEThread()
+        self.serial_thread = GloveSerialThread()
         self.sim_thread = SimulatorThread()
         self.data_source = 'sim_sine'  # 默认使用模拟模式，方便无硬件调试
         self.is_connected = False
         self.is_simulating = False
 
-        # 3. 曲线数据缓冲
+        # 3. 曲线数据缓冲（6通道：5指+手背）
         self.max_points = 300
-        self.plot_data = {f: [] for f in FINGER_KEYS}
+        self.plot_data = {k: [] for k in ALL_KEYS}
 
         # 4. 录制状态
         self.is_recording = False
@@ -66,23 +66,24 @@ class GlovesViewer(QtWidgets.QMainWindow):
         self.ui.rb_sim_sine.setChecked(True)
         self._update_source_ui()
 
+        # 9. 刷新串口列表
+        self._refresh_ports()
+
     # ==================== 信号槽绑定 ====================
     def _bind_signals(self):
         # 数据源切换
-        self.ui.rb_ble.toggled.connect(lambda checked: self._on_source_changed('ble') if checked else None)
+        self.ui.rb_serial.toggled.connect(lambda checked: self._on_source_changed('serial') if checked else None)
         self.ui.rb_sim_sine.toggled.connect(lambda checked: self._on_source_changed('sim_sine') if checked else None)
         self.ui.rb_sim_manual.toggled.connect(lambda checked: self._on_source_changed('sim_manual') if checked else None)
 
-        # BLE控制
-        self.ui.btn_scan.clicked.connect(self._scan_devices)
+        # 串口控制
+        self.ui.btn_refresh_port.clicked.connect(self._refresh_ports)
         self.ui.btn_connect.clicked.connect(self._toggle_connection)
 
-        # BLE线程信号
-        self.ble_thread.device_found.connect(self._on_device_found)
-        self.ble_thread.data_received.connect(self._update_hand_data)
-        self.ble_thread.log_received.connect(self._show_log)
-        self.ble_thread.connection_changed.connect(self._on_connection_changed)
-        self.ble_thread.scan_finished.connect(self._on_scan_finished)
+        # 串口线程信号
+        self.serial_thread.data_received.connect(self._update_hand_data)
+        self.serial_thread.log_received.connect(self._show_log)
+        self.serial_thread.connection_changed.connect(self._on_connection_changed)
 
         # 模拟器信号
         self.sim_thread.data_received.connect(self._update_hand_data)
@@ -98,82 +99,80 @@ class GlovesViewer(QtWidgets.QMainWindow):
     def _on_source_changed(self, source):
         # 停止当前数据源
         if self.is_connected:
-            self._disconnect_ble()
+            self._disconnect_serial()
         if self.is_simulating:
             self._stop_simulator()
 
         self.data_source = source
         self._update_source_ui()
 
-        # 非BLE模式自动启动模拟器
-        if source != 'ble':
+        # 非串口模式自动启动模拟器
+        if source != 'serial':
             self._start_simulator()
 
     def _update_source_ui(self):
         """根据数据源更新UI可见性"""
-        is_ble = self.data_source == 'ble'
+        is_serial = self.data_source == 'serial'
         is_manual = self.data_source == 'sim_manual'
 
-        self.ui.ble_box.setVisible(is_ble)
+        self.ui.port_box.setVisible(is_serial)
         self.ui.slider_group.setVisible(is_manual)
 
         source_label = {
-            'ble': 'BLE',
+            'serial': '串口',
             'sim_sine': '模拟-正弦',
             'sim_manual': '模拟-手动',
         }
         self.ui.lbl_status_source.setText(f"数据源: {source_label[self.data_source]}")
 
         # 录制按钮状态
-        if not is_ble:
+        if not is_serial:
             self.ui.btn_start_record.setEnabled(True)
         elif not self.is_connected:
             self.ui.btn_start_record.setEnabled(False)
 
-    # ==================== BLE操作 ====================
-    def _scan_devices(self):
-        self.ui.cb_device.clear()
-        self.ui.btn_scan.setEnabled(False)
-        self.ui.btn_scan.setText("扫描中...")
-        if not self.ble_thread.isRunning():
-            self.ble_thread.start()
-        self.ble_thread.scan_devices()
-
-    def _on_device_found(self, name, address):
-        self.ui.cb_device.addItem(f"{name} [{address}]", address)
-
-    def _on_scan_finished(self):
-        self.ui.btn_scan.setEnabled(True)
-        self.ui.btn_scan.setText("扫描")
-        if self.ui.cb_device.count() == 0:
-            self.ui.cb_device.addItem("未发现设备")
+    # ==================== 串口操作 ====================
+    def _refresh_ports(self):
+        """刷新可用串口列表"""
+        self.ui.cb_port.clear()
+        ports = GloveSerialThread.list_available_ports()
+        for device, desc in ports:
+            self.ui.cb_port.addItem(f"{device} - {desc}", device)
+        if self.ui.cb_port.count() == 0:
+            self.ui.cb_port.addItem("/dev/ttyUSB0", "/dev/ttyUSB0")
 
     def _toggle_connection(self):
+        """切换串口连接/断开"""
         if self.is_connected:
-            self._disconnect_ble()
+            self._disconnect_serial()
         else:
-            self._connect_ble()
+            self._connect_serial()
 
-    def _connect_ble(self):
-        if self.ui.cb_device.count() == 0:
-            self._show_log("请先扫描设备")
-            return
-        address = self.ui.cb_device.currentData()
-        if not address:
-            self._show_log("请选择有效设备")
+    def _connect_serial(self):
+        """连接串口"""
+        port = self.ui.cb_port.currentData()
+        if not port:
+            port = self.ui.cb_port.currentText()
+        if not port:
+            self._show_log("请先选择串口")
             return
 
-        if not self.ble_thread.isRunning():
-            self.ble_thread.start()
+        baudrate = int(self.ui.cb_baud.currentText())
 
         self.ui.btn_connect.setText("连接中...")
         self.ui.btn_connect.setEnabled(False)
-        self.ble_thread.connect_device(address)
 
-    def _disconnect_ble(self):
-        self.ble_thread.disconnect_device()
+        success = self.serial_thread.connect_serial(port, baudrate)
+        if not success:
+            self.ui.btn_connect.setText("连接")
+            self.ui.btn_connect.setEnabled(True)
+
+    def _disconnect_serial(self):
+        """断开串口连接"""
+        self.serial_thread.disconnect_serial()
 
     def _on_connection_changed(self, connected):
+        """串口连接状态变更回调"""
         self.is_connected = connected
         if connected:
             self.ui.btn_connect.setText("断开")
@@ -227,24 +226,24 @@ class GlovesViewer(QtWidgets.QMainWindow):
         """核心数据更新方法 — 同时更新3D模型、曲线、仪表盘"""
         self.data_count += 1
 
-        # 更新3D手部模型
+        # 更新3D手部模型（仅5指，不含手背）
         self.ui.gl_view.update_hand(angles)
 
-        # 更新角度仪表盘
-        for finger in FINGER_KEYS:
-            if finger in angles:
-                self.ui.gauges[finger].set_angle(angles[finger])
+        # 更新角度仪表盘（6通道：5指+手背）
+        for key in ALL_KEYS:
+            if key in angles:
+                self.ui.gauges[key].set_angle(angles[key])
 
-        # 更新实时曲线
-        for finger in FINGER_KEYS:
-            if finger in angles:
-                self.plot_data[finger].append(angles[finger])
-                if len(self.plot_data[finger]) > self.max_points:
-                    self.plot_data[finger].pop(0)
-                self.ui.curves[finger].setData(self.plot_data[finger])
+        # 更新实时曲线（6通道）
+        for key in ALL_KEYS:
+            if key in angles:
+                self.plot_data[key].append(angles[key])
+                if len(self.plot_data[key]) > self.max_points:
+                    self.plot_data[key].pop(0)
+                self.ui.curves[key].setData(self.plot_data[key])
 
         # 更新原始数据流
-        raw_str = "  ".join([f"{FINGER_LABELS[f]}:{angles.get(f, 0):.1f}°" for f in FINGER_KEYS])
+        raw_str = " ".join([f"{FINGER_LABELS[k]}:{angles.get(k, 0):.0f}°" for k in ALL_KEYS])
         if self.ui.txt_raw_stream.count() > 15:
             self.ui.txt_raw_stream.takeItem(0)
         self.ui.txt_raw_stream.addItem(raw_str)
@@ -265,7 +264,7 @@ class GlovesViewer(QtWidgets.QMainWindow):
 
         try:
             self.record_file = open(filename, 'w', newline='', encoding='utf-8')
-            headers = ['Timestamp'] + [f'{f}_angle' for f in FINGER_KEYS]
+            headers = ['Timestamp'] + [f'{k}_angle' for k in ALL_KEYS]
 
             if self.record_format == 'csv':
                 self.record_writer = csv.writer(self.record_file)
@@ -299,13 +298,13 @@ class GlovesViewer(QtWidgets.QMainWindow):
         self._show_log("数据已成功保存至本地。")
 
     def _write_record_row(self, angles):
-        row = [f"{time.time():.4f}"] + [f"{angles.get(f, 0.0):.1f}" for f in FINGER_KEYS]
+        row = [f"{time.time():.4f}"] + [f"{angles.get(k, 0.0):.1f}" for k in ALL_KEYS]
         try:
             if self.record_format == 'csv':
                 self.record_writer.writerow(row)
             else:
                 self.record_file.write(json.dumps(dict(zip(
-                    ['Timestamp'] + [f'{f}_angle' for f in FINGER_KEYS], row
+                    ['Timestamp'] + [f'{k}_angle' for k in ALL_KEYS], row
                 ))) + '\n')
         except Exception:
             pass
@@ -316,9 +315,9 @@ class GlovesViewer(QtWidgets.QMainWindow):
         self.data_count = 0
         self.ui.lbl_status_hz.setText(f"数据率 (Hz): {hz}")
 
-        if self.data_source == 'ble' and self.ble_thread.isRunning():
-            total = self.ble_thread.packet_count + self.ble_thread.drop_count
-            drop_rate = (self.ble_thread.drop_count / total * 100) if total > 0 else 0.0
+        if self.data_source == 'serial' and self.serial_thread.is_connected:
+            total = self.serial_thread.packet_count + self.serial_thread.drop_count
+            drop_rate = (self.serial_thread.drop_count / total * 100) if total > 0 else 0.0
             self.ui.lbl_status_drop.setText(f"丢包率 (%): {drop_rate:.1f}")
         else:
             self.ui.lbl_status_drop.setText("丢包率 (%): 0.0")
@@ -335,8 +334,7 @@ class GlovesViewer(QtWidgets.QMainWindow):
         if self.is_simulating:
             self._stop_simulator()
         if self.is_connected:
-            self._disconnect_ble()
-        self.ble_thread.stop()
+            self._disconnect_serial()
         event.accept()
 
 

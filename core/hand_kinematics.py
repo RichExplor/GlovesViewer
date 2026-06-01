@@ -60,8 +60,8 @@ FINGER_BASES = {
     'pinky': (-1.2, 0.0, 0.0),
 }
 
-# 拇指特殊起始方向（与手掌平面成约30°角，向外展开）
-THUMB_BASE_ANGLE_X = 30.0 # 拇指初始X方向偏转角度（外展）
+# 拇指特殊起始方向（与手掌平面成约10°角，向外展开）
+THUMB_BASE_ANGLE_X = 10.0 # 拇指初始X方向偏转角度（外展）
 
 
 class HandKinematics:
