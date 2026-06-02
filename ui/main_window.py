@@ -43,13 +43,14 @@ class Ui_GlovesViewer(object):
         """)
 
         self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal, MainWindow)
+        self.main_splitter.setHandleWidth(6)
         MainWindow.setCentralWidget(self.main_splitter)
 
         # ================= 1. 左侧面板 =================
         self.left_widget = QtWidgets.QWidget()
-        self.left_widget.setFixedWidth(270)
+        self.left_widget.setMinimumWidth(260)
         self.left_layout = QtWidgets.QVBoxLayout(self.left_widget)
-        self.left_layout.setContentsMargins(10, 5, 5, 10)
+        self.left_layout.setContentsMargins(4, 6, 4, 8)
 
         # --- 数据源选择 ---
         self.source_box = QtWidgets.QGroupBox("数据源")
@@ -116,19 +117,21 @@ class Ui_GlovesViewer(object):
         self.left_layout.addWidget(self.slider_group)
 
         # --- 原始数据流 ---
-        self.raw_box = QtWidgets.QGroupBox("原始数据流")
-        self.raw_vbox = QtWidgets.QVBoxLayout(self.raw_box)
+        self.lbl_raw_stream = QtWidgets.QLabel("原始数据流")
+        self.lbl_raw_stream.setObjectName("lbl_raw_stream")
+        self.left_layout.addWidget(self.lbl_raw_stream)
         self.txt_raw_stream = QtWidgets.QListWidget()
-        self.txt_raw_stream.setFixedHeight(100)
-        self.raw_vbox.addWidget(self.txt_raw_stream)
-        self.left_layout.addWidget(self.raw_box, stretch=1)
+        self.txt_raw_stream.setObjectName("txt_raw_stream")
+        # self.txt_raw_stream.setFixedHeight(100)  # Removed fixed height to allow expanding
+        self.txt_raw_stream.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.left_layout.addWidget(self.txt_raw_stream, stretch=10)
 
         self.main_splitter.addWidget(self.left_widget)
 
         # ================= 2. 中间面板 =================
         self.center_widget = QtWidgets.QWidget()
         self.center_layout = QtWidgets.QVBoxLayout(self.center_widget)
-        self.center_layout.setContentsMargins(5, 5, 5, 10)
+        self.center_layout.setContentsMargins(2, 6, 2, 8)
 
         self.scene_box = QtWidgets.QGroupBox("3D 手部骨骼模型")
         self.scene_vbox = QtWidgets.QVBoxLayout(self.scene_box)

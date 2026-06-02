@@ -62,6 +62,12 @@ class GlovesViewer(QtWidgets.QMainWindow):
         self.hz_timer.timeout.connect(self._calculate_hz)
         self.hz_timer.start(1000)
 
+        # 额外：合并高频数据更新以避免主线程被频繁 UI 更新阻塞
+        self._latest_angles = None
+        self._ui_update_timer = QtCore.QTimer()
+        self._ui_update_timer.timeout.connect(self._flush_hand_data)
+        self._ui_update_timer.start(33)  # ~30 FPS 更新 UI
+
         # 8. 初始状态 — 设置默认数据源为模拟正弦
         self.ui.rb_sim_sine.setChecked(True)
         self._update_source_ui()
@@ -223,8 +229,17 @@ class GlovesViewer(QtWidgets.QMainWindow):
 
     # ==================== 数据更新 ====================
     def _update_hand_data(self, angles):
-        """核心数据更新方法 — 同时更新3D模型、曲线、仪表盘"""
+        """接收线程将最新数据存入缓冲，由定时器在主线程合并更新UI以减小卡顿"""
         self.data_count += 1
+        # 只保留最新一帧数据，避免频繁 UI 更新
+        self._latest_angles = angles
+
+    def _flush_hand_data(self):
+        """以较低频率（由定时器驱动）刷新 UI"""
+        angles = self._latest_angles
+        if angles is None:
+            return
+        self._latest_angles = None
 
         # 更新3D手部模型（仅5指，不含手背）
         self.ui.gl_view.update_hand(angles)
@@ -249,7 +264,7 @@ class GlovesViewer(QtWidgets.QMainWindow):
         self.ui.txt_raw_stream.addItem(raw_str)
         self.ui.txt_raw_stream.scrollToBottom()
 
-        # 录制
+        # 录制（以flush 频率写入，避免频繁磁盘 I/O）
         if self.is_recording and self.record_file:
             self._write_record_row(angles)
 

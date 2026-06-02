@@ -28,8 +28,9 @@ class Hand3DWidget(gl.GLViewWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setBackgroundColor('#1a1d24')
-        # 相机: 正面稍偏上看竖立的手(手指朝Z+方向)
-        self.setCameraPosition(distance=18, elevation=15, azimuth=-45)
+        # 相机: 初始化为更适合观察手部姿态的视角（正面、稍偏上）
+        # 手指朝向 Z+，选择较近距离以便观察细节
+        self.setCameraPosition(distance=15, elevation=20, azimuth=45)
 
         self.kinematics = HandKinematics()
 
@@ -56,27 +57,6 @@ class Hand3DWidget(gl.GLViewWidget):
         grid.setColor((255, 255, 255, 25))  # 非常淡的白色
         self.addItem(grid)
 
-        # 坐标轴 — 带端点球标记
-        axis_data = [
-            (np.array([[0,0,0],[3,0,0]]), (1, 0.3, 0.3, 0.8)),   # X - 红(横向)
-            (np.array([[0,0,0],[0,3,0]]), (0.3, 1, 0.3, 0.8)),   # Y - 绿(前后)
-            (np.array([[0,0,0],[0,0,3]]), (0.3, 0.3, 1, 0.8)),   # Z - 蓝(向上=手指方向)
-        ]
-        for pos, color in axis_data:
-            # 轴线
-            item = gl.GLLinePlotItem(pos=pos, color=color, width=2, antialias=True)
-            self.addItem(item)
-            # 轴端球标记
-            arrow_mesh = MeshData.sphere(rows=6, cols=6, radius=0.1)
-            arrow_item = gl.GLMeshItem(
-                meshdata=arrow_mesh,
-                smooth=True,
-                color=color,
-                shader='shaded',
-                glOptions='translucent'
-            )
-            arrow_item.translate(*pos[1])
-            self.addItem(arrow_item)
 
         # 创建手掌面片
         self._create_palm_mesh()
