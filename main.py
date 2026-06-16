@@ -16,13 +16,21 @@ import json
 import time
 from datetime import datetime
 
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtWidgets, QtCore, QtGui
 
 from core.serial_thread import GloveSerialThread
 from core.simulator import SimulatorThread
 from core.frame_parser import FINGER_KEYS, ALL_KEYS
 from ui.main_window import Ui_GlovesViewer
 from ui.widgets import FINGER_LABELS
+
+# ── 状态栏样式常量（与 main_window.py 的 APP_STYLE 匹配）──
+_STATUS_BASE = (
+    "padding: 2px 12px; font-family: 'Consolas'; font-size: 11px;"
+)
+_STATUS_CONNECTED = _STATUS_BASE + "color: #4ade80; font-weight: bold;"
+_STATUS_DISCONNECTED = _STATUS_BASE + "color: #ef4444; font-weight: bold;"
+_STATUS_SIMULATING = _STATUS_BASE + "color: #fbbf24; font-weight: bold;"
 
 
 class GlovesViewer(QtWidgets.QMainWindow):
@@ -125,11 +133,11 @@ class GlovesViewer(QtWidgets.QMainWindow):
         self.ui.slider_group.setVisible(is_manual)
 
         source_label = {
-            'serial': '串口',
-            'sim_sine': '模拟-正弦',
-            'sim_manual': '模拟-手动',
+            'serial': '🔌 串口',
+            'sim_sine': '🌊 模拟-正弦',
+            'sim_manual': '🎛️ 模拟-手动',
         }
-        self.ui.lbl_status_source.setText(f"数据源: {source_label[self.data_source]}")
+        self.ui.lbl_status_source.setText(f"📡 数据源: {source_label[self.data_source]}")
 
         # 录制按钮状态
         if not is_serial:
@@ -165,12 +173,12 @@ class GlovesViewer(QtWidgets.QMainWindow):
 
         baudrate = int(self.ui.cb_baud.currentText())
 
-        self.ui.btn_connect.setText("连接中...")
+        self.ui.btn_connect.setText("⏳ 连接中...")
         self.ui.btn_connect.setEnabled(False)
 
         success = self.serial_thread.connect_serial(port, baudrate)
         if not success:
-            self.ui.btn_connect.setText("连接")
+            self.ui.btn_connect.setText("⚡ 连接")
             self.ui.btn_connect.setEnabled(True)
 
     def _disconnect_serial(self):
@@ -181,18 +189,24 @@ class GlovesViewer(QtWidgets.QMainWindow):
         """串口连接状态变更回调"""
         self.is_connected = connected
         if connected:
-            self.ui.btn_connect.setText("断开")
-            self.ui.btn_connect.setStyleSheet("background-color: #dc3545; color: white;")
+            self.ui.btn_connect.setText("🔌 断开")
+            self.ui.btn_connect.setStyleSheet(
+                "background-color: #dc2626; color: white; border-radius: 6px; "
+                "font-weight: bold; font-size: 13px; padding: 8px;"
+            )
             self.ui.btn_connect.setEnabled(True)
-            self.ui.lbl_status_indicator.setText("连接状态: 已连接")
-            self.ui.lbl_status_indicator.setStyleSheet("color: #55ff55;")
+            self.ui.lbl_status_indicator.setText("🟢 连接状态: 已连接")
+            self.ui.lbl_status_indicator.setStyleSheet(_STATUS_CONNECTED)
             self.ui.btn_start_record.setEnabled(True)
         else:
-            self.ui.btn_connect.setText("连接")
-            self.ui.btn_connect.setStyleSheet("background-color: #28a745; color: white;")
+            self.ui.btn_connect.setText("⚡ 连接")
+            self.ui.btn_connect.setStyleSheet(
+                "background-color: #16a34a; color: white; border-radius: 6px; "
+                "font-weight: bold; font-size: 13px; padding: 8px;"
+            )
             self.ui.btn_connect.setEnabled(True)
-            self.ui.lbl_status_indicator.setText("连接状态: 未连接")
-            self.ui.lbl_status_indicator.setStyleSheet("color: #ff5555;")
+            self.ui.lbl_status_indicator.setText("🔴 连接状态: 未连接")
+            self.ui.lbl_status_indicator.setStyleSheet(_STATUS_DISCONNECTED)
             self.ui.btn_start_record.setEnabled(False)
             self.ui.btn_stop_record.setEnabled(False)
 
@@ -208,8 +222,8 @@ class GlovesViewer(QtWidgets.QMainWindow):
 
         self.is_simulating = True
         self.sim_thread.start_sim()
-        self.ui.lbl_status_indicator.setText("连接状态: 模拟中")
-        self.ui.lbl_status_indicator.setStyleSheet("color: #e5c07b;")
+        self.ui.lbl_status_indicator.setText("🟡 连接状态: 模拟中")
+        self.ui.lbl_status_indicator.setStyleSheet(_STATUS_SIMULATING)
         self.ui.btn_start_record.setEnabled(True)
 
     def _stop_simulator(self):
@@ -217,8 +231,8 @@ class GlovesViewer(QtWidgets.QMainWindow):
             return
         self.sim_thread.stop_sim()
         self.is_simulating = False
-        self.ui.lbl_status_indicator.setText("连接状态: 未连接")
-        self.ui.lbl_status_indicator.setStyleSheet("color: #ff5555;")
+        self.ui.lbl_status_indicator.setText("🔴 连接状态: 未连接")
+        self.ui.lbl_status_indicator.setStyleSheet(_STATUS_DISCONNECTED)
         self.ui.btn_start_record.setEnabled(False)
         self.ui.btn_stop_record.setEnabled(False)
 
@@ -289,7 +303,10 @@ class GlovesViewer(QtWidgets.QMainWindow):
 
             self.is_recording = True
             self.ui.btn_start_record.setEnabled(False)
-            self.ui.btn_start_record.setStyleSheet("background-color: #11535e; color: #5c6370;")
+            self.ui.btn_start_record.setStyleSheet(
+                "background-color: #11535e; color: #475569; "
+                "border-radius: 6px; font-size: 11px;"
+            )
             self.ui.btn_stop_record.setEnabled(True)
             self.ui.cb_format.setEnabled(False)
             self._show_log(f"录制已启动 -> {filename}")
@@ -307,7 +324,10 @@ class GlovesViewer(QtWidgets.QMainWindow):
             self.record_writer = None
 
         self.ui.btn_start_record.setEnabled(True)
-        self.ui.btn_start_record.setStyleSheet("background-color: #17a2b8; color: white;")
+        self.ui.btn_start_record.setStyleSheet(
+            "background-color: #0e7490; color: white; "
+            "border-radius: 6px; font-size: 11px;"
+        )
         self.ui.btn_stop_record.setEnabled(False)
         self.ui.cb_format.setEnabled(True)
         self._show_log("数据已成功保存至本地。")
@@ -328,14 +348,14 @@ class GlovesViewer(QtWidgets.QMainWindow):
     def _calculate_hz(self):
         hz = self.data_count
         self.data_count = 0
-        self.ui.lbl_status_hz.setText(f"数据率 (Hz): {hz}")
+        self.ui.lbl_status_hz.setText(f"⏱ 数据率 (Hz): {hz}")
 
         if self.data_source == 'serial' and self.serial_thread.is_connected:
             total = self.serial_thread.packet_count + self.serial_thread.drop_count
             drop_rate = (self.serial_thread.drop_count / total * 100) if total > 0 else 0.0
-            self.ui.lbl_status_drop.setText(f"丢包率 (%): {drop_rate:.1f}")
+            self.ui.lbl_status_drop.setText(f"⚠ 丢包率 (%): {drop_rate:.1f}")
         else:
-            self.ui.lbl_status_drop.setText("丢包率 (%): 0.0")
+            self.ui.lbl_status_drop.setText("⚠ 丢包率 (%): 0.0")
 
     # ==================== 工具方法 ====================
     def _show_log(self, message):
@@ -355,6 +375,11 @@ class GlovesViewer(QtWidgets.QMainWindow):
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
+
+    # 设置全局字体
+    font = QtGui.QFont("Segoe UI", 10)
+    app.setFont(font)
+
     viewer = GlovesViewer()
     viewer.show()
     sys.exit(app.exec())
