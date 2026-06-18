@@ -3,14 +3,18 @@
 GlovesViewer 主程序入口 — 主窗口控制器与信号槽绑定
 
 业务逻辑:
-1. 数据源切换（串口 / 模拟正弦 / 模拟手动）
-2. 串口设备扫描、连接、断开
-3. 模拟器启停控制
-4. 数据接收 -> 3D模型更新 + 曲线更新 + 仪表盘更新
-5. 数据录制（CSV/JSON）
-6. 状态栏刷新
+1. 自动加载本地 bones_of_the_hand.glb 手部骨骼模型
+2. 数据源切换（串口 / 模拟正弦 / 模拟手动）
+3. 串口设备扫描、连接、断开
+4. 模拟器启停控制
+5. 数据接收 -> 3D模型更新 + 曲线更新 + 仪表盘更新
+6. GLB 关节独立旋转控制 (滑块 -> 3D模型)
+7. T-Pose 重置 + 骨骼调试信息输出
+8. 数据录制（CSV/JSON）
+9. 状态栏刷新
 """
 import sys
+import os
 import csv
 import json
 import time
@@ -32,11 +36,17 @@ _STATUS_CONNECTED = _STATUS_BASE + "color: #4ade80; font-weight: bold;"
 _STATUS_DISCONNECTED = _STATUS_BASE + "color: #ef4444; font-weight: bold;"
 _STATUS_SIMULATING = _STATUS_BASE + "color: #fbbf24; font-weight: bold;"
 
+# ── GLB 模型默认路径 ──
+_DEFAULT_GLB_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'model', 'bones_of_the_hand.glb'
+)
+
 
 class GlovesViewer(QtWidgets.QMainWindow):
     """数据手套上位机主窗口"""
 
-    def __init__(self):
+    def __init__(self, glb_path: str = ''):
         super().__init__()
         # 1. 挂载静态UI
         self.ui = Ui_GlovesViewer()
@@ -62,10 +72,14 @@ class GlovesViewer(QtWidgets.QMainWindow):
         # 5. 统计
         self.data_count = 0
 
-        # 6. 绑定信号槽
+        # 6. GLB 模型加载
+        self._glb_path = glb_path or _DEFAULT_GLB_PATH
+        self._model_loaded = False
+
+        # 7. 绑定信号槽
         self._bind_signals()
 
-        # 7. 定时器
+        # 8. 定时器
         self.hz_timer = QtCore.QTimer()
         self.hz_timer.timeout.connect(self._calculate_hz)
         self.hz_timer.start(1000)
@@ -76,12 +90,72 @@ class GlovesViewer(QtWidgets.QMainWindow):
         self._ui_update_timer.timeout.connect(self._flush_hand_data)
         self._ui_update_timer.start(33)  # ~30 FPS 更新 UI
 
-        # 8. 初始状态 — 设置默认数据源为模拟正弦
+        # 9. 初始状态 — 设置默认数据源为模拟正弦
         self.ui.rb_sim_sine.setChecked(True)
         self._update_source_ui()
 
-        # 9. 刷新串口列表
+        # 10. 刷新串口列表
         self._refresh_ports()
+
+        # 11. 自动加载 GLB 模型
+        self._load_glb_model()
+
+    # ==================== GLB 模型加载 ====================
+    def _load_glb_model(self):
+        """自动加载本地 bones_of_the_hand.glb"""
+        if not os.path.isfile(self._glb_path):
+            msg = f"❌ GLB 文件不存在: {self._glb_path}"
+            self.ui.lbl_model_status.setText(msg)
+            self.ui.lbl_model_status.setStyleSheet(
+                "color: #ef4444; font-size: 11px; padding: 2px 6px; "
+                "background-color: #151823; border-radius: 4px;"
+            )
+            self.ui.lbl_status_model.setText("🦴 模型: 加载失败")
+            self.ui.lbl_status_model.setStyleSheet(
+                "padding: 2px 12px; font-family: 'Consolas'; font-size: 11px; color: #ef4444;"
+            )
+            return
+
+        self.ui.lbl_model_status.setText("⏳ 正在加载 GLB 模型...")
+        self.ui.lbl_model_status.setStyleSheet(
+            "color: #fbbf24; font-size: 11px; padding: 2px 6px; "
+            "background-color: #151823; border-radius: 4px;"
+        )
+
+        # 使用 QTimer 延迟加载，让 UI 先显示出来
+        QtCore.QTimer.singleShot(100, self._do_load_glb)
+
+    def _do_load_glb(self):
+        """执行 GLB 模型加载"""
+        success = self.ui.gl_view.load_model(self._glb_path)
+
+        if success:
+            n_bones = len(self.ui.gl_view.loader.bones)
+            n_verts = len(self.ui.gl_view.loader.vertices) if self.ui.gl_view.loader.vertices is not None else 0
+            msg = f"✅ 模型加载成功 — 骨骼:{n_bones} 顶点:{n_verts}"
+            self.ui.lbl_model_status.setText(msg)
+            self.ui.lbl_model_status.setStyleSheet(
+                "color: #4ade80; font-size: 11px; padding: 2px 6px; "
+                "background-color: #151823; border-radius: 4px;"
+            )
+            self.ui.lbl_status_model.setText(f"🦴 模型: {n_bones}骨骼")
+            self.ui.lbl_status_model.setStyleSheet(
+                "padding: 2px 12px; font-family: 'Consolas'; font-size: 11px; color: #4ade80;"
+            )
+            self._model_loaded = True
+
+            # 在控制台输出骨骼调试信息
+            self.ui.gl_view.loader.print_debug_info()
+        else:
+            self.ui.lbl_model_status.setText("❌ 模型加载失败，请检查文件格式")
+            self.ui.lbl_model_status.setStyleSheet(
+                "color: #ef4444; font-size: 11px; padding: 2px 6px; "
+                "background-color: #151823; border-radius: 4px;"
+            )
+            self.ui.lbl_status_model.setText("🦴 模型: 加载失败")
+            self.ui.lbl_status_model.setStyleSheet(
+                "padding: 2px 12px; font-family: 'Consolas'; font-size: 11px; color: #ef4444;"
+            )
 
     # ==================== 信号槽绑定 ====================
     def _bind_signals(self):
@@ -102,12 +176,11 @@ class GlovesViewer(QtWidgets.QMainWindow):
         # 模拟器信号
         self.sim_thread.data_received.connect(self._update_hand_data)
 
-        # 手动滑条
+        # 手动滑条（原有5指弯曲度滑条）
         self.ui.slider_group.angle_changed.connect(self._on_manual_angle)
 
-        # 录制
-        self.ui.btn_start_record.clicked.connect(self._start_recording)
-        self.ui.btn_stop_record.clicked.connect(self._stop_recording)
+        # 关节独立控制滑块信号
+        # 关节独立控制面板已移除，相关信号连接已移除
 
     # ==================== 数据源管理 ====================
     def _on_source_changed(self, source):
@@ -241,6 +314,24 @@ class GlovesViewer(QtWidgets.QMainWindow):
         if self.is_simulating and self.sim_thread.mode == 'manual':
             self.sim_thread.set_manual_angle(finger, angle)
 
+    # ==================== 关节独立控制 ====================
+    def _on_joint_rotation(self, joint_name: str, rx: float, ry: float, rz: float):
+        """关节独立旋转滑块变化"""
+        self.ui.gl_view.update_joint_rotation(joint_name, rx, ry, rz)
+
+    def _on_reset_tpose(self):
+        """重置到 T-Pose"""
+        self.ui.gl_view.reset_tpose()
+        self._show_log("✅ 已重置到 T-Pose")
+
+    def _on_debug_info(self):
+        """输出骨骼调试信息"""
+        if self._model_loaded and self.ui.gl_view.controller is not None:
+            self.ui.gl_view.controller.print_debug_info()
+            self._show_log("🐛 骨骼调试信息已输出到控制台")
+        else:
+            self._show_log("⚠️ 模型未加载，无法输出调试信息")
+
     # ==================== 数据更新 ====================
     def _update_hand_data(self, angles):
         """接收线程将最新数据存入缓冲，由定时器在主线程合并更新UI以减小卡顿"""
@@ -373,6 +464,20 @@ class GlovesViewer(QtWidgets.QMainWindow):
         event.accept()
 
 
+def _find_glb_path() -> str:
+    """查找 GLB 模型文件路径"""
+    # 1. 命令行参数
+    for i, arg in enumerate(sys.argv):
+        if arg == '--glb' and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+        if arg.endswith('.glb'):
+            return arg
+
+    # 2. 默认路径
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        'model', 'bones_of_the_hand.glb')
+
+
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
 
@@ -380,6 +485,7 @@ if __name__ == '__main__':
     font = QtGui.QFont("Segoe UI", 10)
     app.setFont(font)
 
-    viewer = GlovesViewer()
+    glb_path = _find_glb_path()
+    viewer = GlovesViewer(glb_path=glb_path)
     viewer.show()
     sys.exit(app.exec())

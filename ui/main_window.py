@@ -2,16 +2,18 @@
 """
 主窗口静态UI布局类 — 不包含任何业务逻辑
 
-三栏布局:
+四栏布局:
 左栏(280px): 串口连接控制 + 数据源选择 + 录制控制 + 角度仪表盘 + 原始数据流
-中栏(弹性): 3D手部骨骼模型渲染区
-右栏(弹性): 6通道(5指+手背)实时时序曲线
+中栏(弹性): 3D手部骨骼模型渲染区 (GLB模型)
+右栏1(弹性): 关节独立控制滑块面板
+右栏2(弹性): 6通道(5指+手背)实时时序曲线
 """
 from PyQt5 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 
-from ui.hand_3d_widget import Hand3DWidget
+from ui.glb_hand_widget import GLBHandWidget
+from ui.joint_slider_panel import JointSliderPanel
 from ui.widgets import AngleGaugeWidget, FingerSliderGroup, FINGER_KEYS, FINGER_LABELS, FINGER_COLORS
 from core.frame_parser import ALL_KEYS
 
@@ -235,6 +237,33 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     background: none;
 }
+
+/* ── TabWidget ── */
+QTabWidget::pane {
+    border: 1px solid #1e2230;
+    border-radius: 4px;
+    background-color: #0a0c12;
+}
+QTabBar::tab {
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 6px 14px;
+    border: 1px solid #1e2230;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    background-color: #151823;
+    margin-right: 2px;
+}
+QTabBar::tab:selected {
+    color: #f8fafc;
+    background-color: #0a0c12;
+    border-color: #3b82f6;
+}
+QTabBar::tab:hover:!selected {
+    background-color: #1e2230;
+}
 """
 
 
@@ -242,8 +271,8 @@ class Ui_GlovesViewer(object):
     """纯粹的界面布局类，不包含任何串口、计算等业务逻辑"""
 
     def setupUi(self, MainWindow):
-        MainWindow.setWindowTitle("Gloves Hanwei Viewer v1.0")
-        MainWindow.resize(1440, 860)
+        MainWindow.setWindowTitle("Gloves Hanwei Viewer v2.0 — GLB Hand Model")
+        MainWindow.resize(1600, 900)
 
         # 设置窗口图标（如果存在）
         import os
@@ -371,27 +400,38 @@ class Ui_GlovesViewer(object):
         self.center_layout = QtWidgets.QVBoxLayout(self.center_widget)
         self.center_layout.setContentsMargins(4, 10, 4, 10)
 
-        self.scene_box = QtWidgets.QGroupBox("🤚 3D 手部骨骼模型")
+        self.scene_box = QtWidgets.QGroupBox("🤚 3D 手部骨骼模型 (GLB)")
         self.scene_vbox = QtWidgets.QVBoxLayout(self.scene_box)
         self.scene_vbox.setContentsMargins(4, 16, 4, 4)
         self.scene_vbox.setSpacing(4)
 
-        self.gl_view = Hand3DWidget()
+        # GLB 手部 3D 渲染组件
+        self.gl_view = GLBHandWidget()
         self.scene_vbox.addWidget(self.gl_view, stretch=1)
+
+        # 模型加载状态标签
+        self.lbl_model_status = QtWidgets.QLabel("⏳ 等待加载 bones_of_the_hand.glb ...")
+        self.lbl_model_status.setStyleSheet(
+            "color: #fbbf24; font-size: 11px; padding: 2px 6px; "
+            "background-color: #151823; border-radius: 4px;"
+        )
+        self.lbl_model_status.setAlignment(QtCore.Qt.AlignCenter)
+        self.scene_vbox.addWidget(self.lbl_model_status)
 
         self.center_layout.addWidget(self.scene_box)
         self.main_splitter.addWidget(self.center_widget)
 
-        # ================= 3. 右侧面板 =================
+        # ================= 3. 右侧面板（Tab切换: 关节控制 / 时序曲线）=================
         self.right_widget = QtWidgets.QWidget()
         self.right_layout = QtWidgets.QVBoxLayout(self.right_widget)
         self.right_layout.setContentsMargins(6, 10, 10, 10)
         self.right_layout.setSpacing(4)
 
-        self.wave_box = QtWidgets.QGroupBox("📈 实时弯曲度曲线")
-        self.wave_vbox = QtWidgets.QVBoxLayout(self.wave_box)
-        self.wave_vbox.setSpacing(8)
-        self.wave_vbox.setContentsMargins(8, 20, 8, 8)
+        # 只保留实时弯曲度曲线面板，移除关节独立控制面板
+        self.right_widget = QtWidgets.QWidget()
+        self.right_layout = QtWidgets.QVBoxLayout(self.right_widget)
+        self.right_layout.setContentsMargins(6, 10, 10, 10)
+        self.right_layout.setSpacing(4)
 
         pg.setConfigOption('background', '#0a0c12')
         pg.setConfigOption('foreground', '#e2e8f0')
@@ -426,13 +466,13 @@ class Ui_GlovesViewer(object):
             self.plot_fingers[key] = plot_w
 
             h_layout.addWidget(plot_w, stretch=6)
-            self.wave_vbox.addLayout(h_layout)
+            self.right_layout.addLayout(h_layout)
 
-        self.right_layout.addWidget(self.wave_box)
         self.main_splitter.addWidget(self.right_widget)
 
-        # 分割器比例: 左栏固定宽度, 中栏3D:右栏曲线 = 3:1
-        self.right_widget.setMaximumWidth(340)
+        # 分割器比例: 左栏固定宽度, 中栏3D:右栏 = 3:1
+        self.right_widget.setMinimumWidth(280)
+        self.right_widget.setMaximumWidth(420)
         self.main_splitter.setStretchFactor(0, 0)
         self.main_splitter.setStretchFactor(1, 3)
         self.main_splitter.setStretchFactor(2, 1)
@@ -455,6 +495,8 @@ class Ui_GlovesViewer(object):
         )
         self.lbl_status_source = QtWidgets.QLabel("📡 数据源: 串口")
         self.lbl_status_source.setStyleSheet(status_style_template + "color: #e2e8f0;")
+        self.lbl_status_model = QtWidgets.QLabel("🦴 模型: 未加载")
+        self.lbl_status_model.setStyleSheet(status_style_template + "color: #fbbf24;")
 
         # 添加分隔线效果
         sep1 = QtWidgets.QFrame()
@@ -466,6 +508,9 @@ class Ui_GlovesViewer(object):
         sep3 = QtWidgets.QFrame()
         sep3.setFrameShape(QtWidgets.QFrame.VLine)
         sep3.setStyleSheet("color: #1e2230;")
+        sep4 = QtWidgets.QFrame()
+        sep4.setFrameShape(QtWidgets.QFrame.VLine)
+        sep4.setStyleSheet("color: #1e2230;")
 
         self.status_bar.addPermanentWidget(self.lbl_status_hz, 1)
         self.status_bar.addPermanentWidget(sep1)
@@ -473,4 +518,6 @@ class Ui_GlovesViewer(object):
         self.status_bar.addPermanentWidget(sep2)
         self.status_bar.addPermanentWidget(self.lbl_status_source, 1)
         self.status_bar.addPermanentWidget(sep3)
+        self.status_bar.addPermanentWidget(self.lbl_status_model, 1)
+        self.status_bar.addPermanentWidget(sep4)
         self.status_bar.addPermanentWidget(self.lbl_status_indicator, 1)
